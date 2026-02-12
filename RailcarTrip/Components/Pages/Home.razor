@@ -1,0 +1,225 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@using CsvHelper
+@using CsvHelper.Configuration
+@using RailcarTrip.Application.Interfaces
+@using RailcarTrip.Domain.Entities
+@using RailcarTrip.DTOs
+@using System.Globalization
+@using System.Linq
+@using RailcarTrip.Infrastructure.Context
+@inject ITripRepository TripRepository
+@inject IRailcarEventRepository RailcarEventRepository
+@inject IRailcarRepository RailcarRepository
+@inject ILocationRepository LocationRepository
+@inject IEventRepository EventRepository
+@inject RailcarDbContext DbContext
+
+<h3 class="text-center">Trips</h3>
+
+<div class="row justify-content-center">
+    <div class="col-6">
+        <h5>Upload railcar trip events CSV:</h5>
+        <InputFile class="form-control" OnChange="HandleFileUpload" />
+    </div>
+</div>
+@if (processing)
+{
+    <div class="row justify-content-center">
+        <p><em>Processing CSV...</em></p>
+    </div>
+}
+
+<h3 class="text-center pt-4">All Trips</h3>
+
+<div class="row justify-content-center">
+    <div class="col-10">
+        @if (trips is null)
+        {
+            <p><em>Loading railcar trips...</em></p>
+        }
+        else if (trips.Any())
+        {
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Railcar Id</th>
+                        <th>Origin City</th>
+                        <th>Destination City</th>
+                        <th>Start UTC</th>
+                        <th>End UTC</th>
+                        <th>Duration</th>
+                        <th>Events</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var trip in trips)
+                    {
+                        <tr>
+                            <td>@trip.Railcar.Code</td>
+                            <td>@trip.Origin.Name</td>
+                            <td>@trip.Destination?.Name</td>
+                            <td>@trip.StartUTC</td>
+                            <td>@trip.EndUTC</td>
+                            <td>@trip.DurationMinutes</td>
+                            <td><a href="@($"/trip_events/{trip.Id}")" class="btn btn-secondary">View Trip Events</a></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <p><em>No railcar trips found</em></p>
+        }
+    </div>
+</div>
+
+@code {
+    private List<Trip>? trips;
+    private Boolean processing = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        trips = await TripRepository.GetAllTripsAsync();
+    }
+
+    private string file = string.Empty;
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        //TODO move this into a service
+        processing = true;
+        if (e.File is not null) //TODO enhance file validation to check extension and ensure only 1 file is processed at a time
+        {
+            try {
+                var file = e.File;
+                Console.WriteLine($"File uploaded: {file.Name}");
+                var config = new CsvConfiguration(CultureInfo.InvariantCulture)
+                {
+                    HasHeaderRecord = true,
+                    MissingFieldFound = null,
+                    HeaderValidated = null,
+                    IgnoreBlankLines = true
+                };
+                using (var reader = new StreamReader(file.OpenReadStream()))
+                using (var csv = new CsvReader(reader, CultureInfo.InvariantCulture))
+                {
+                    Console.WriteLine("stream reader and csv reader created. Processing CSV file...");
+                    List<RailcarEventsDTO> newRailcarEventsDTOs = new List<RailcarEventsDTO>();
+                    int index = 0;
+                    await foreach (var record in csv.GetRecordsAsync<RailcarEventsDTO>())
+                    {
+                        index++;
+                        Console.WriteLine($"CSV record #{index} : {record.PrintValues()}");
+                        Location recordLocation = await LocationRepository.GetLocationByIdAsync(record.LocationId);
+                        if (recordLocation is not null)
+                        {
+                            try
+                            {
+                                DateTime unspecifiedDateTime = DateTime.SpecifyKind(record.EventTime, DateTimeKind.Unspecified);
+                                TimeZoneInfo localTimeZone = TimeZoneInfo.FindSystemTimeZoneById(recordLocation.Timezone);
+                                if (localTimeZone.IsInvalidTime(unspecifiedDateTime))
+                                {
+                                    unspecifiedDateTime = unspecifiedDateTime.AddHours(1);
+                                }
+                                DateTime dateTimeUTC = new DateTimeOffset(unspecifiedDateTime, localTimeZone.GetUtcOffset(unspecifiedDateTime)).UtcDateTime;
+                                record.EventTime = dateTimeUTC;
+
+                                newRailcarEventsDTOs.Add(record);
+                            }
+                            catch (TimeZoneNotFoundException tze)
+                            {
+                                Console.WriteLine($"Timezone not found for record: {tze.Message}");
+                            }
+                            catch (InvalidTimeZoneException itz)
+                            {
+                                Console.WriteLine($"Invalid timezone for record: {itz.Message}");
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"Exception occurred for record: {ex.Message}");
+                            }
+                        } 
+                        else
+                        {
+                            Console.WriteLine("Error location not found for record with LocationId: " + 
+                            $"{record.LocationId}, unable to continue processing this record");
+                            // TODO enhance error handling for this to notify user of the error
+                        }
+                    }
+
+                    var grouped = newRailcarEventsDTOs
+                                    .OrderBy(e => e.RailcarCode)
+                                    .ThenBy(e => e.EventTime)
+                                    .GroupBy(e => e.RailcarCode);
+
+                    var railcars = await RailcarRepository.GetAllRailcarsAsync();
+                    var locations = await LocationRepository.GetAllLocationsAsync();
+                    var events = await EventRepository.GetAllEventsAsync();
+
+                    List<Trip> newTrips = new List<Trip>();
+                    foreach (var railcarGroup in grouped)
+                    {
+                        Trip currentTrip = null;
+                        List<Railcar_Event> tripEvents = new List<Railcar_Event>();
+                        foreach (var eventDto in railcarGroup)
+                        {
+                            var railcar = railcars.SingleOrDefault(r => r.Code == railcarGroup.Key);
+                            var eventModel = events.SingleOrDefault(e => e.Code == eventDto.EventCode);
+                            var location = locations.SingleOrDefault(l => l.Id == eventDto.LocationId);
+                            if (railcar is null || eventModel is null || location is null)
+                            {
+                                Console.WriteLine($"failed to process eventDto for {eventDto} \nUnable to find railcar for {railcarGroup.Key} \nor event for {eventDto.EventCode} \nor location for {eventDto.LocationId}");
+                            }
+
+                            if (eventDto.EventCode == "W" && currentTrip is null)
+                            {
+                                currentTrip = new Trip
+                                {
+                                    RailcarId = railcar.Id,
+                                    OriginId = eventDto.LocationId,
+                                    StartUTC = eventDto.EventTime,
+                                    Events = tripEvents
+                                };
+                                newTrips.Add(currentTrip);
+                                DbContext.Trips.Add(currentTrip);
+                            }
+                            if (currentTrip == null)
+                            {
+                                continue;
+                            }
+                            Railcar_Event tripRailcarEvent = new Railcar_Event
+                            {
+                                RailcarId = railcar.Id,
+                                EventId = eventModel.Id,
+                                LocationId = eventDto.LocationId,
+                                EventTime = eventDto.EventTime,
+                                TripId = currentTrip.Id
+                            };
+                            tripEvents.Add(tripRailcarEvent);
+                            currentTrip.Events.Add(tripRailcarEvent);
+                            if (eventDto.EventCode == "Z" && currentTrip is not null)
+                            {
+                                currentTrip.DestinationId = eventDto.LocationId;
+                                currentTrip.EndUTC = eventDto.EventTime;
+                                if (currentTrip.EndUTC.HasValue)
+                                {
+                                    currentTrip.DurationMinutes = (int)(currentTrip.EndUTC.Value - currentTrip.StartUTC).TotalMinutes;
+                                }
+                                currentTrip = null;
+                            }
+                        }
+                        Console.WriteLine("Testing");
+                    }
+                    await DbContext.SaveChangesAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error processing file: {ex.Message}");
+            }
+        }
+        trips = await TripRepository.GetAllTripsAsync();
+        processing = false;
+    }
+}

@@ -1,0 +1,85 @@
+﻿@page "/events"
+@using RailcarTrip.Application.Interfaces
+@using RailcarTrip.Domain.Entities
+@inject IEventRepository EventRepository
+
+<h3 class="text-center">Events</h3>
+
+<div class="row justify-content-center">
+    <div class="col-6">
+        <EditForm Model="@eventItem" method="post" FormName="AddEventForm" OnValidSubmit="AddEvent" autocomplete="off">
+            <h5>Add Event</h5>
+
+            <div class="d-flex align-items-end gap-2">
+                <div>
+                    <label for="code" class="form-label">Code</label>
+                    <InputText id="code" class="form-control" @bind-Value="eventItem.Code" />
+                </div>
+
+                <div>
+                    <label for="description" class="form-label">Description</label>
+                    <InputText id="description" class="form-control" @bind-Value="eventItem.Description" />
+                </div>
+
+                <div class="mt-auto">
+                    <button type="submit" class="btn btn-primary">Submit</button>
+                </div>
+            </div>
+
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+        </EditForm>
+    </div>
+</div>
+
+<h3 class="text-center pt-4">All Events</h3>
+
+<div class="row justify-content-center">
+    <div class="col-6">
+        @if (events is null)
+        {
+            <p><em>Loading events...</em></p>
+        }
+        else if (events.Any())
+        {
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Code</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var eventItem in events)
+                    {
+                        <tr>
+                    <td>@eventItem.Code</td>
+                    <td>@eventItem.Description</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <p><em>No events found</em></p>
+        }
+    </div>
+</div>
+
+@code {
+    private List<Event>? events;
+
+    protected override async Task OnInitializedAsync()
+    {
+        events = await EventRepository.GetAllEventsAsync();
+    }
+
+    [SupplyParameterFromForm]
+    public Event eventItem { get; set; } = new() { Code = string.Empty, Description = String.Empty };
+
+    private async Task AddEvent()
+    {
+        await EventRepository.AddEventAsync(eventItem);
+    }
+}

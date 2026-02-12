@@ -1,0 +1,78 @@
+﻿@page "/railcars"
+@using RailcarTrip.Application.Interfaces
+@using RailcarTrip.Domain.Entities
+@inject IRailcarRepository RailcarRepository
+
+<h3 class="text-center">Railcars</h3>
+
+<div class="row justify-content-center">
+    <div class="col-6">
+        <EditForm Model="@railcar" method="post" FormName="AddRailcarForm" OnValidSubmit="AddRailcar" autocomplete="off">
+            <h5>Add Railcar</h5>
+
+            <div class="d-flex align-items-end gap-2">
+                <div>
+                    <label for="code" class="form-label">Code</label>
+                    <InputText id="code" class="form-control" @bind-Value="railcar.Code" />
+                </div>
+
+                <div class="mt-auto">
+                    <button type="submit" class="btn btn-primary">Submit</button>
+                </div>
+            </div>
+            
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+        </EditForm>
+    </div>
+</div>
+
+<h3 class="text-center pt-4">All Railcars</h3>
+
+<div class="row justify-content-center">
+    <div class="col-6">
+        @if (railcars is null)
+        {
+            <p><em>Loading railcars...</em></p>
+        } 
+        else if (railcars.Any())
+        {
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Code</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var railcar in railcars)
+                    {
+                        <tr>
+                            <td>@railcar.Code</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <p><em>No railcars found</em></p>
+        }
+    </div>
+</div>
+
+@code {
+    private List<Railcar>? railcars;
+
+    protected override async Task OnInitializedAsync()
+    {
+        railcars = await RailcarRepository.GetAllRailcarsAsync();
+    }
+
+    [SupplyParameterFromForm]
+    public Railcar railcar { get; set; } = new() { Code = string.Empty };
+
+    private async Task AddRailcar()
+    {
+        await RailcarRepository.AddRailcarAsync(railcar);
+    }
+}

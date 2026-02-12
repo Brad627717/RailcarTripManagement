@@ -1,0 +1,58 @@
+﻿@page "/trip_events/{tripId:int}"
+@using RailcarTrip.Application.Interfaces
+@using RailcarTrip.Domain.Entities
+@inject IRailcarEventRepository RailcarEventRepository
+
+<h3 class="text-center">All Trip Events</h3>
+
+<div class="row">
+    <a href="/">Return to Trips</a>
+</div>
+
+<div class="row justify-content-center">
+    <div class="col-6">
+        @if (railcarEvents is null)
+        {
+            <p><em>Loading trip events...</em></p>
+        }
+        else if (railcarEvents.Any())
+        {
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Railcar Id</th>
+                        <th>Event</th>
+                        <th>Location</th>
+                        <th>Event Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var railcarEvent in railcarEvents)
+                    {
+                        <tr>
+                            <td>@railcarEvent.Railcar.Code</td>
+                            <td>@railcarEvent.Event.Code</td>
+                            <td>@railcarEvent.Location.Name</td>
+                            <td>@railcarEvent.EventTime</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <p><em>No trip events found</em></p>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int tripId { get; set; }
+    private List<Railcar_Event>? railcarEvents;
+
+    protected override async Task OnInitializedAsync()
+    {
+        railcarEvents = await RailcarEventRepository.GetRailcarEventsByTripIdAsync(tripId);
+    }
+}

@@ -1,0 +1,91 @@
+﻿@page "/locations"
+@using RailcarTrip.Application.Interfaces
+@using RailcarTrip.Domain.Entities
+@inject ILocationRepository LocationRepository
+
+<h3 class="text-center">Locations</h3>
+
+<div class="row justify-content-center">
+    <div class="col-6">
+        <EditForm Model="@location" method="post" FormName="AddLocationForm" OnValidSubmit="AddLocation" autocomplete="off">
+            <h5>Add Location</h5>
+
+            <div class="d-flex align-items-center gap-2">
+                <div>
+                    <label for="name" class="form-label">Name</label>
+                    <InputText id="name" class="form-control" @bind-Value="location.Name" />
+                </div>
+
+                <div>
+                    <label for="timezone" class="form-label">Timezone</label>
+                    <InputSelect id="timezone" class="form-control" @bind-Value="location.Timezone">
+                        <option value="">Select Timezone</option>
+                        @foreach (var tz in TimeZoneInfo.GetSystemTimeZones())
+                        {
+                            <option value="@tz.StandardName">@tz.StandardName</option>
+                        }
+                    </InputSelect>
+                </div>
+
+                <div class="mt-auto">
+                    <button type="submit" class="btn btn-primary">Submit</button>
+                </div>
+            </div>
+            
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+        </EditForm>
+    </div>
+</div>
+
+<h3 class="text-center pt-4">All Locations</h3>
+
+<div class="row justify-content-center">
+    <div class="col-6">
+        @if (locations is null)
+        {
+            <p><em>Loading locations...</em></p>
+        } 
+        else if (locations.Any())
+        {
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Timezone</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var location in locations)
+                    {
+                        <tr>
+                            <td>@location.Name</td>
+                            <td>@location.Timezone</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <p><em>No locations found</em></p>
+        }
+    </div>
+</div>
+
+@code {
+    private List<Location>? locations;
+
+    protected override async Task OnInitializedAsync()
+    {
+        locations = await LocationRepository.GetAllLocationsAsync();
+    }
+
+    [SupplyParameterFromForm]
+    public Location location { get; set; } = new() { Name = string.Empty, Timezone = string.Empty };
+
+    private async Task AddLocation()
+    {
+        await LocationRepository.AddLocationAsync(location);
+    }
+}
